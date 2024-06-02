@@ -35,36 +35,38 @@ jobs:
           path: dist/main.exe
 
       - name: Fetch all tags
-        run: |
-          git fetch --tags
+        run: git fetch --tags
 
       - name: Get the latest tag
         id: get_latest_tag
+        shell: powershell
         run: |
-          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
-          echo "Latest tag: $latest_tag"
-          echo "::set-output name=latest_tag::$latest_tag"
+          $latestTag = git describe --tags $(git rev-list --tags --max-count=1)
+          Write-Output "Latest tag: $latestTag"
+          echo "::set-output name=latest_tag::$latestTag"
 
       - name: Increment version
         id: increment_version
+        shell: powershell
         run: |
-          latest_tag=${{ steps.get_latest_tag.outputs.latest_tag }}
-          if [[ $latest_tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            version=${latest_tag:1}
-            IFS='.' read -ra parts <<< "$version"
-            parts[2]=$((parts[2]+1))
-            new_version="v${parts[0]}.${parts[1]}.${parts[2]}"
-          else
-            new_version="v0.0.1"
-          fi
-          echo "New version: $new_version"
-          echo "::set-output name=new_version::$new_version"
+          $latestTag = "${{ steps.get_latest_tag.outputs.latest_tag }}"
+          if ($latestTag -match '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            $version = $latestTag.Substring(1)
+            $parts = $version -split '\.'
+            $parts[2] = [int]$parts[2] + 1
+            $newVersion = "v$($parts[0]).$($parts[1]).$($parts[2])"
+          } else {
+            $newVersion = "v0.0.1"
+          }
+          Write-Output "New version: $newVersion"
+          echo "::set-output name=new_version::$newVersion"
 
       - name: Create new tag
+        shell: powershell
         run: |
-          new_version=${{ steps.increment_version.outputs.new_version }}
-          git tag $new_version
-          git push origin $new_version
+          $newVersion = "${{ steps.increment_version.outputs.new_version }}"
+          git tag $newVersion
+          git push origin $newVersion
 
       - name: Get PR Body
         id: get_pr_body
