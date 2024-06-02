@@ -78,7 +78,7 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.payload.pull_request.number
             });
-            return pr.data.body;
+            return pr.data.body.replace(/\r/g, "");  # Remove carriage returns
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
