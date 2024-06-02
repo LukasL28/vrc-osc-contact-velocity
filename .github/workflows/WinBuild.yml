@@ -34,59 +34,53 @@ jobs:
           name: Windows_Build
           path: dist/main.exe
 
-      - name: Ensure version.txt and changes.md exist
-        shell: powershell
-        run: |
-          if (-Not (Test-Path "version.txt")) {
-            Write-Output "0.0.0" > version.txt
-          }
-          if (-Not (Test-Path "changes.md")) {
-            Write-Output "No changes logged." > changes.md
-          }
+      - name: Fetch all tags
+        run: git fetch --tags
 
-      - name: Read changes.md
-        id: read_changes
+      - name: Get the latest tag
+        id: get_latest_tag
         shell: powershell
         run: |
-          $changes = Get-Content changes.md -Raw
-          echo "CHANGES_BODY<<EOF" >> $env:GITHUB_ENV
-          echo "$changes" >> $env:GITHUB_ENV
-          echo "EOF" >> $env:GITHUB_ENV
-
-      - name: Get the current version
-        id: get_version
-        shell: powershell
-        run: |
-          $version = Get-Content version.txt
-          Write-Output "Current version is $version"
-          echo "::set-output name=version::$version"
+          $latestTag = git describe --tags $(git rev-list --tags --max-count=1)
+          Write-Output "Latest tag: $latestTag"
+          echo "::set-output name=latest_tag::$latestTag"
 
       - name: Increment version
         id: increment_version
         shell: powershell
         run: |
-          $version = "${{ steps.get_version.outputs.version }}"
-          if ($version -match '^\d+\.\d+\.\d+$') {
+          $latestTag = "${{ steps.get_latest_tag.outputs.latest_tag }}"
+          if ($latestTag -match '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            $version = $latestTag.Substring(1)
             $parts = $version -split '\.'
             $parts[2] = [int]$parts[2] + 1
-            $new_version = "$($parts[0]).$($parts[1]).$($parts[2])"
+            $newVersion = "v$($parts[0]).$($parts[1]).$($parts[2])"
           } else {
-            $new_version = "0.0.1"
+            $newVersion = "v0.0.1"
           }
-          Write-Output "New version is $new_version"
-          echo "::set-output name=new_version::$new_version"
-          
-      - name: Update version in version.txt
+          Write-Output "New version: $newVersion"
+          echo "::set-output name=new_version::$newVersion"
+
+      - name: Create new tag
         shell: powershell
         run: |
-          $new_version = "${{ steps.increment_version.outputs.new_version }}"
-          Set-Content version.txt $new_version
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-          git checkout main
-          git add version.txt
-          git commit -m "Bump version to $new_version"
-          git push origin HEAD:main
+          $newVersion = "${{ steps.increment_version.outputs.new_version }}"
+          git tag $newVersion
+          git push origin $newVersion
+
+      - name: Get PR Body
+        id: get_pr_body
+        uses: actions/github-script@v3
+        with:
+          script: |
+            const pr = await github.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+            return pr.data.body.replace(/\r/g, "");  # Remove carriage returns
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Release
         id: create_release
@@ -94,9 +88,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: "v${{ steps.increment_version.outputs.new_version }}"
-          release_name: "Release v${{ steps.increment_version.outputs.new_version }}"
-          body: ${{ env.CHANGES_BODY }}
+          tag_name: ${{ steps.increment_version.outputs.new_version }}
+          release_name: "Release ${{ steps.increment_version.outputs.new_version }}"
+          body: ${{ steps.get_pr_body.outputs.result }}
           draft: false
           prerelease: false
 
